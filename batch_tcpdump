@@ -1,0 +1,85 @@
+@echo off
+setlocal enabledelayedexpansion
+
+REM program directory
+REM
+SET pgmdir=c:\dump
+
+REM mail parameters
+REM
+SET eMail=user@domain.com
+SET subj=-s "Starting TCPDump"
+SET body=-body "This email is to tell you that TCPDump should have started"
+SET server=-server computer.host.com
+
+REM start of program, sets directory
+REM
+pushd %pgmdir%
+
+REM start of program
+REM sends out email that tcpdump is starting
+REM
+SET CURRENTTIME=%TIME%
+IF "%CURRENTTIME:~0,1%"==" " (SET CURRENTTIME=0%CURRENTTIME:~1%)
+FOR /F "tokens=2-4 delims=/ " %%A IN ('DATE /T') DO (SET TIMESTAMP=%%C-%%A-%%B %CURRENTTIME%)
+echo %TIMESTAMP%
+
+REM builds a timestamp in the form of YYYYMMDD_HHMMSS for the file name
+REM
+SET tcpdumpfile=%date:~-4%%date:~4,2%%date:~7,2%_%time:~0,2%%time:~3,2%%time:~6,2%
+echo %tcpdumpfile%
+
+SET subj=-s "tcpdump from firewall - STARTING at %TIMESTAMP%"
+SET body=-body "The tcpdump from the firewall is about to begin.  It is now %TIMESTAMP%"
+blat -to %eMail% -f %eMail% %subj% %body% %server% 
+
+REM runs autohotkey script to do tcpdump. Passes "%tcpdumpfile% into WG2.ahk as var %1%
+REM
+pushd C:\Program Files\AutoHotkey
+AutoHotkey.exe /f /ErrorStdOut C:\dump\WG2.ahk "%tcpdumpfile%"
+
+REM check to see if tcpdump file was created
+REM if so, sends email the tcpdump was executed correctly and starts Wireshark & tshark to change to csv
+REM if not, sends email to warn file failed
+REM
+IF EXIST C:\%tcpdumpfile%.pcap (
+	
+	SET CURRENTTIME=!DATE! !TIME!
+	SET subj=-s "tcpdump from firewall - END at !CURRENTTIME!"
+	SET body=-body "The tcpdump from the filewall completed successfully.  Will now start coverting .pcap to .csv. It is now: !CURRENTTIME!"
+	blat -to %eMail% -f %eMail% !subj! !body! %server% 
+	
+	pushd C:\Program Files\Wireshark 
+	echo -r T:\%tcpdumpfile%.pcap -T fields -E separator=, -E header=y -e frame.time -e frame.number -e frame.len -e ip.len -e ip.dst -e ip.src -e ip.proto -e tcp.srcport -e udp.srcport >T:\%tcpdumpfile%.csv
+
+		REM This checks to make sure the .pcap was converted to .csv
+		REM "if exist" will send email stated it has converted
+		REM "else" will send email stating there was an error in the converstion
+		REM
+		IF EXIST t:\%tcpdumpfile%.csv (
+	
+			SET CURRENTTIME=!DATE! !TIME!
+			SET subj=-s "%tcpdumpfile%.csv has been created !CURRENTTIME!"
+			SET body=-body "The %tcpdumpfile%.pcap has been converted to %tcpdumpfile%.csv It is now: !CURRENTTIME!"
+			blat -to %eMail% -f %eMail% !subj! !body! %server% 
+	
+	
+		) ELSE (
+			SET CURRENTTIME=!DATE! !TIME!
+			SET subj=-s "%tcpdumpfile%.csv has NOT been created - ERROR - NO FILE "
+			SET body=-body "%tcpdumpfile%.csv has NOT been created.  It is now: !CURRENTTIME!"
+			blat -to %eMail% -f %eMail% !subj! !body! %server%
+		)
+
+) ELSE (
+	SET CURRENTTIME=!DATE! !TIME!
+	SET subj=-s "tcpdump from firewall - ERROR - NO FILE "
+	SET body=-body "The autohotkey did not generate a file.  It is now: !CURRENTTIME!"
+	blat -to %eMail% -f %eMail% !subj! !body! %server%
+)
+
+
+
+
+popd
+endlocal
